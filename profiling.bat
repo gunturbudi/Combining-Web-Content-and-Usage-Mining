@@ -1,0 +1,1 @@
+python -m cProfile -s time batch.py > profile_sesuatu.text 2>&1
