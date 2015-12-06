@@ -105,10 +105,11 @@ def status_cleaned_article():
             autopct='%1.1f%%', shadow=True, startangle=90)
     # Set aspect ratio to be equal so that pie is drawn as a circle.
     plt.axis('equal')    
-    plt.savefig("static/count_article")
+    plt.savefig("static/count_article_clean")
+    plt.clf()
     
-    str_return = 'Cleaned Article : <strong>',str(article_clean.count()),'</strong> <br/>Found = <br/> <strong>',str_lang,'</strong><br/>'
-    str_return = str_return + "<img src='static/count_article.png' title='Count Article' />"
+    str_return = 'Cleaned Article : <strong>' + str(article_clean.count()) + '</strong> <br/>Found = <br/> <strong>' + str(str_lang) + '</strong><br/>'
+    str_return = str_return + "<img src='static/count_article_clean.png' title='Count Article' />"
 
     return str_return
 
@@ -241,6 +242,7 @@ def createWordCloud(topik_result,topik_number):
     plt.imshow(elements)
     plt.axis("off")
     plt.savefig("static/lda/topik_"+str(topik_number))
+    plt.clf()
 
 @route('/get_article/<topic>')
 def get_article(topic):
@@ -360,8 +362,11 @@ def check_topic_article():
 def do_upload():
     upload     = request.files.get('upload')
     upload.filename = "server_log"
-    os.remove('server_log/server_log')
-    upload.save('server_log/') # appends upload.filename automatically
+    try:
+        os.remove('server_log/server_log')
+    except Exception:
+        pass
+	upload.save('server_log/') # appends upload.filename automatically
     return 'Server Log File Uploaded!'
 
 def processLog(infileName):
@@ -465,7 +470,7 @@ def processLog(infileName):
                     session[sessionNumber] = [accessUrl]              
                 else:
                     ipdipaua = ipDict[ipAddr][userAgent]
-                    if newRequestTime - ipdipaua[1] >= sessionTimeout:
+                    if newRequestTime - ipdipaua[1] >= sessionTimeout or len(session[sessionNumber])>10:
                         ipdipaua[0] += 1
                         sessionNumber+=1
                         session[sessionNumber] = [accessUrl]
@@ -477,13 +482,13 @@ def processLog(infileName):
     return recordsRead
 
 def saveSessions():
-    db.session_log.remove({"data_uji":no_uji})
+    db.session_log.delete_many({"data_uji":no_uji})
     session_log_db = db.session_log
     for key,value in session.iteritems():        
         session_seq = []
         for val in value:
             session_seq.append(val)
-        session_log_db.insert({"key":(key-1),"session":session_seq,"data_uji":no_uji})
+        session_log_db.insert_one({"key":(key-1),"session":session_seq,"data_uji":no_uji})
 
 
 @route('/sessionization')
@@ -540,6 +545,8 @@ def convertSession(sessionLog,uniqueTopic):
 
 @route('/train_som')
 def train_som():
+    print "Preparation..."
+    
     session_log_db = db.session_log
     allTopic = articles.distinct("topic")
     
@@ -549,7 +556,10 @@ def train_som():
     
     lentopic = len(uniqueTopic)
 
+    print "Counting Source..."
+    
     panjangSOM = session_log_db.find({"data_uji":no_uji}).count()
+    print "panjangSOM = " + str(panjangSOM)
     lebarSOM = lentopic*lentopic + lentopic*2 + 1
     
     #somInput = zeros((panjangSOM,lebarSOM),dtype=int16)
@@ -559,8 +569,12 @@ def train_som():
 
     
     somInput = []
+    print "Creating Matrix"
+    i = 0
     for s in session_log_db.find({"data_uji":no_uji}):
         matrixSOM = getPresedenceMatrix(convertSession(s["session"],uniqueTopic),uniqueTopic,1)
+        i = i + 1
+        print(str((i*100)/panjangSOM) + "% (Matrix  = " + str(i) + " of " + str(panjangSOM) + ")")
         somInput.append(matrixSOM)
 
         #for t in s["session"]:
@@ -569,45 +583,21 @@ def train_som():
     numpy.matrix(somInput)
     SOM(somInput,lebarSOM,panjangSOM)
     
-    return "Berhasil Melakukan Training SOM"
+    html = '<div role="alert" class="alert alert-success alert-dismissible fade in">'
+    html = html + ' <button aria-label="Close" data-dismiss="alert" class="close" type="button"><span aria-hidden="true">Close</span></button>'
+    html = html + 'Berhasil Melakukan Training SOM</div>'
+
+    return html
 
 def SOM(data,leninput,lentarget):
     som = MiniSom(16,16,leninput,sigma=1.0,learning_rate=0.5)
     som.random_weights_init(data)
     print("Training...")
-    som.train_batch(data,10000) # training with 10000 iterations
+    som.train_random(data,10000) # training with 10000 iterations
     print("\n...ready!")
     
     numpy.save('weight_som',som.weights)
-   
-    bone()
-    pcolor(som.distance_map().T) # distance map as background
-    colorbar()
     
-    t = zeros(lentarget,dtype=int)
-    
-    # use different colors and markers for each label
-    markers = ['o','s','D']
-    colors = ['r','g','b']
-    outfile = open('cluster-result.csv','w')
-    for cnt,xx in enumerate(data):
-        w = som.winner(xx) # getting the winner
-        #print cnt
-        #print xx
-        #print w
-        
-        for z in xx:
-            outfile.write("%s " % str(z))
-        outfile.write("%s-%s \n" % (str(w[0]),str(w[1])))
-        
-        #outfile.write("%s %s\n" % str(xx),str(w))
-        # palce a marker on the winning position for the sample xx
-        #plot(w[0]+.5,w[1]+.5,markers[t[cnt]],markerfacecolor='None',
-        #     markeredgecolor=colors[t[cnt]],markersize=12,markeredgewidth=2)
-    outfile.close()
-    #axis([0,som.weights.shape[0],0,som.weights.shape[1]])
-    #show() # show the figure
-
 @route('/test_som')
 def test_som():
     print "Clustering.."
@@ -654,7 +644,11 @@ def test_som():
     outfile.close()
     #TopikCluster()
     
-    return "Berhasil Melakukan Clustering"
+    html = '<div role="alert" class="alert alert-success alert-dismissible fade in">'
+    html = html + ' <button aria-label="Close" data-dismiss="alert" class="close" type="button"><span aria-hidden="true">Close</span></button>'
+    html = html + 'Berhasil Melakukan Clustering</div>'
+    
+    return html
     
 def TopikCluster():
     cluster_mongo = db.cluster_result
@@ -717,19 +711,27 @@ def get_som_result(cluster,no_uji_opt):
     html_som = html_som + "</ol>"
     return html_som
         
-@route('/prefixspan')
-def do_prefixSpan():
+@route('/prefixspan/<min_support>')
+def do_prefixSpan(min_support):
+    print "PrefixSpan pada Data Uji " + str(no_uji)
+    
+    print "Creating Index..."
+    db.cluster_result.create_index([("cluster", pymongo.ASCENDING),("data_uji", pymongo.ASCENDING)])
+    
     clusters = db.cluster_result
     pref_result = db.prefix_result
+    db.prefix_result.drop()
     
-    pref_result.remove({"data_uji":no_uji})
     print "PrefixSpan Running"
     cluster_d = clusters.find({"data_uji":no_uji}).distinct("cluster")
-    for d in cluster_d:        
+    for d in cluster_d:
         input_sequence = populateDataClustered(d)
-        Prefixspan(input_sequence, 3,str(d))
+        Prefixspan(input_sequence, int(min_support),str(d))
     
-    return "Berhasil Melakukan Sequence Pattern Mining dengan PrefixSpan"
+    html = '<div role="alert" class="alert alert-success alert-dismissible fade in">'
+    html = html + ' <button aria-label="Close" data-dismiss="alert" class="close" type="button"><span aria-hidden="true">Close</span></button>'
+    html = html + 'Berhasil Melakukan Sequence Pattern Mining dengan PrefixSpan</div>'
+    return html
 
 @route('/see_prefix_result')
 @route('/see_prefix_result/<no_uji_opt>')
@@ -975,17 +977,25 @@ class Prefixspan:
         #print 'list of frequent sequences: ' + str(self.seq_pats)
         
     def saveFinalResult(self,file_output,seq_pat):
-        client = MongoClient('localhost', 27017)
-        db = client.gudegnet
         pref_result = db.prefix_result
-        
-        outfile = open('final_result/cluster_'+file_output, "w")
+        #print "Saving Final Result Prefixspan.."
+        pref_save = []
         for pat in self.seq_pats:
-            outfile.write("%s\n" % str(pat))
-            pref_result.insert({"cluster":file_output,"sequence":pat[0],"min_sup":pat[1],"data_uji":no_uji})
-            #if len(pat[0]) > 1:
-            #    pref_result.insert({"cluster":file_output,"sequence":pat[0],"min_sup":pat[1]})
-        outfile.close()
+            pref_save.append({"cluster":file_output,"sequence":pat[0],"min_sup":pat[1],"data_uji":no_uji})
+
+        self.seq_pats = []
+
+        try:
+            #print "Menyimpan PrefixSpan..."
+            pref_result.insert_many(pref_save) 
+            pref_save = []
+            #print "Berhasil Penyimpanan"
+            pref_result.create_index([("cluster", pymongo.ASCENDING),("data_uji", pymongo.ASCENDING)])
+            #print "Berhasil Buat Index PrefixResult"
+        except:
+            #print "Error Penyimpanan"
+            pass
+    
         
     def prefixspan(self, a, l, S):
         '''
@@ -1062,4 +1072,4 @@ class Prefixspan:
     
 
 debug(True)
-run(reloader=True)
+run(reloader=True,port=90)
